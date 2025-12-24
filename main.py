@@ -22,16 +22,19 @@ html, body, [class*="css"] {
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = BASE_DIR / "data"
 
-def clean(x):
-    return re.sub(r"[^가-힣]", "", unicodedata.normalize("NFC", str(x))).strip()
+def normalize_korean(text):
+    t = unicodedata.normalize("NFC", str(text))
+    t = t.replace("환경데이터","").replace("환경데이 터","")
+    t = re.sub(r"[^가-힣]", "", t)
+    return t.strip()
 
 @st.cache_data
 def load_env():
     env={}
     for p in DATA_DIR.iterdir():
         if p.suffix.lower()==".csv":
-            env[clean(p.stem)] = pd.read_csv(p)
-    return env if env else None
+            env[normalize_korean(p.stem)] = pd.read_csv(p)
+    return env
 
 @st.cache_data
 def load_growth():
@@ -39,24 +42,18 @@ def load_growth():
     for p in DATA_DIR.iterdir():
         if p.suffix.lower()==".xlsx":
             xlsx=p; break
-    if xlsx is None: return None
     sheets=pd.read_excel(xlsx, sheet_name=None)
-    return {clean(k):v for k,v in sheets.items()}
+    return {normalize_korean(k):v for k,v in sheets.items()}
 
 with st.spinner("데이터 로딩중..."):
     env=load_env()
     growth=load_growth()
 
-if env is None or growth is None:
-    st.error("❌ data 폴더에 CSV 또는 XLSX 파일이 없습니다.")
-    st.stop()
-
-# ---------- 매칭 검증 ----------
-matched = set(env) & set(growth)
+matched=set(env)&set(growth)
 if not matched:
-    st.error("❌ CSV 학교명과 XLSX 시트명이 하나도 매칭되지 않았습니다.")
-    st.write("CSV:", list(env.keys()))
-    st.write("XLSX:", list(growth.keys()))
+    st.error("❌ CSV와 XLSX 학교명이 매칭되지 않습니다.")
+    st.write("CSV:",env.keys())
+    st.write("XLSX:",growth.keys())
     st.stop()
 
 EC_MAP={"송도고":2.0,"하늘고":4.0,"아라고":8.0,"동산고":1.0}
@@ -70,24 +67,18 @@ with tab1:
     rows=[]
     for s in matched:
         e=env[s]; g=growth[s]
-        rows.append({
-            "학교":s,
-            "온도":e["temperature"].mean(),
-            "습도":e["humidity"].mean(),
-            "pH":e["ph"].mean(),
-            "EC":e["ec"].mean(),
-            "생중량":g["생중량(g)"].mean()
-        })
+        rows.append({"학교":s,"온도":e["temperature"].mean(),
+                     "습도":e["humidity"].mean(),
+                     "pH":e["ph"].mean(),
+                     "EC":e["ec"].mean(),
+                     "생중량":g["생중량(g)"].mean()})
     df=pd.DataFrame(rows)
 
     fig=make_subplots(rows=2,cols=2,
         subplot_titles=["온도-생중량","습도-생중량","pH-생중량","EC-생중량"])
-    vars=["온도","습도","pH","EC"]
-    for i,v in enumerate(vars):
+    for i,v in enumerate(["온도","습도","pH","EC"]):
         r,c=divmod(i,2)
-        fig.add_trace(go.Scatter(x=df[v],y=df["생중량"],
-                                 mode="markers+text",text=df["학교"]),
+        fig.add_trace(go.Scatter(x=df[v],y=df["생중량"],mode="markers+text",text=df["학교"]),
                       row=r+1,col=c+1)
-
     fig.update_layout(font=dict(family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"))
     st.plotly_chart(fig,use_container_width=True)
